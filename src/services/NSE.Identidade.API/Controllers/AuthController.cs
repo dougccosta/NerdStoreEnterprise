@@ -2,7 +2,9 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
+using NSE.Core.Messages.Integration;
 using NSE.Identidade.API.Models;
+using NSE.MessageBus;
 using NSE.WebAPI.Core.Controllers;
 using NSE.WebAPI.Core.Identidade;
 using System;
@@ -22,11 +24,17 @@ namespace NSE.Identidade.API.Controllers
         private readonly UserManager<IdentityUser> userManager;
         private readonly AppSettings appSettings;
 
-        public AuthController(SignInManager<IdentityUser> signInManager, UserManager<IdentityUser> userManager, IOptions<AppSettings> appSettings)
+        private readonly IMessageBus bus;
+
+        public AuthController(SignInManager<IdentityUser> signInManager
+                              , UserManager<IdentityUser> userManager
+                              , IOptions<AppSettings> appSettings
+                              , IMessageBus bus)
         {
             this.signInManager = signInManager;
             this.userManager = userManager;
             this.appSettings = appSettings.Value;
+            this.bus = bus;
         }
 
         [HttpPost("nova-conta")]
@@ -44,7 +52,17 @@ namespace NSE.Identidade.API.Controllers
             var result = await userManager.CreateAsync(user, usuarioRegistro.Senha);
 
             if (result.Succeeded)
+            {
+                var clienteResult = await RegistrarCliente(usuarioRegistro);
+
+                if (!clienteResult.ValidationResult.IsValid)
+                {
+                    await userManager.DeleteAsync(user);
+                    return CustomResponse(clienteResult.ValidationResult);
+                }
+
                 return CustomResponse(await GerarJwt(usuarioRegistro.Email));
+            }
 
             foreach(var error in result.Errors)
             {
@@ -140,5 +158,23 @@ namespace NSE.Identidade.API.Controllers
 
         private static long ToUnixEpochDate(DateTime date)
             => (long)Math.Round((date.ToUniversalTime() - new DateTimeOffset(1970, 1, 1, 0, 0, 0, TimeSpan.Zero)).TotalSeconds);
+
+        private async Task<ResponseMessage> RegistrarCliente(UsuarioRegistro usuarioRegistro)
+        {
+            var usuario = await userManager.FindByEmailAsync(usuarioRegistro.Email);
+
+            var usuarioRegistrado = new UsuarioRegistradoIntegrationEvent(
+                Guid.Parse(usuario.Id), usuarioRegistro.Nome, usuarioRegistro.Email, usuarioRegistro.Cpf);
+
+            try
+            {
+                return await bus.RequestAsync<UsuarioRegistradoIntegrationEvent, ResponseMessage>(usuarioRegistrado);
+            }
+            catch
+            {
+                await userManager.DeleteAsync(usuario);
+                throw;
+            }
+        }
     }
 }
