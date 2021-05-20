@@ -1,4 +1,4 @@
-﻿using NSE.WebApp.MVC.Extensions;
+﻿using NSE.WebAPI.Core.Usuario;
 using System.Collections.Generic;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -9,9 +9,9 @@ namespace NSE.WebApp.MVC.Services.Handlers
 {
     public class HttpClientAuthorizationDelegateHandler : DelegatingHandler
     {
-        private readonly IUser user;
+        private readonly IAspNetUser user;
 
-        public HttpClientAuthorizationDelegateHandler(IUser user)
+        public HttpClientAuthorizationDelegateHandler(IAspNetUser user)
         {
             this.user = user;
         }
